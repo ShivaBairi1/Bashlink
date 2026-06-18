@@ -114,6 +114,8 @@ class WhatsAppConfig(Base):
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
     phone_number_id = Column(Text, nullable=False)
     access_token = Column(Text, nullable=False)
+    rate_limit = Column(Float, nullable=True)
+    concurrency = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -125,4 +127,15 @@ class ProviderFailedMessage(Base):
     channel = Column(Text, nullable=False)
     payload = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class AnalyticsAggregate(Base):
+    __tablename__ = "analytics_aggregates"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=gen_uuid)
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
+    period_start = Column(DateTime(timezone=True), nullable=False)
+    period_end = Column(DateTime(timezone=True), nullable=False)
+    sent_count = Column(Integer, nullable=False, default=0)
+    delivered_count = Column(Integer, nullable=False, default=0)
+    failed_count = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
