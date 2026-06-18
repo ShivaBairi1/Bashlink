@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse, UserOut
 from app.database.session import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +19,28 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not r:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     return {"access_token": r["access_token"], "refresh_token": r["refresh_token"]}
+
+@router.post('/refresh', response_model=TokenResponse)
+async def refresh(request: Request, db: AsyncSession = Depends(get_db)):
+    body = await request.json()
+    refresh_token = body.get('refresh_token')
+    if not refresh_token:
+        raise HTTPException(status_code=400, detail='refresh_token required')
+    svc = AuthService(db)
+    r = await svc.refresh(refresh_token)
+    if not r:
+        raise HTTPException(status_code=401, detail='invalid_refresh')
+    return {"access_token": r["access_token"], "refresh_token": r["refresh_token"]}
+
+@router.post('/logout')
+async def logout(request: Request, db: AsyncSession = Depends(get_db)):
+    body = await request.json()
+    refresh_token = body.get('refresh_token')
+    if not refresh_token:
+        raise HTTPException(status_code=400, detail='refresh_token required')
+    svc = AuthService(db)
+    await svc.logout(refresh_token)
+    return {"status":"ok"}
 
 @router.get("/me", response_model=UserOut)
 async def me(request = None):

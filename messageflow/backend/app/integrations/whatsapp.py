@@ -1,12 +1,12 @@
 import httpx
 from app.core.config import settings
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 class WhatsAppService:
-    def __init__(self):
-        self.base = settings.WHATSAPP_API_BASE
-        self.phone_number_id = settings.WHATSAPP_PHONE_NUMBER_ID
-        self.access_token = settings.WHATSAPP_ACCESS_TOKEN
+    def __init__(self, access_token: Optional[str] = None, phone_number_id: Optional[str] = None, base_url: Optional[str] = None):
+        self.base = base_url or settings.WHATSAPP_API_BASE
+        self.phone_number_id = phone_number_id or settings.WHATSAPP_PHONE_NUMBER_ID
+        self.access_token = access_token or settings.WHATSAPP_ACCESS_TOKEN
 
     def _headers(self):
         return {"Authorization": f"Bearer {self.access_token}", "Content-Type": "application/json"}
