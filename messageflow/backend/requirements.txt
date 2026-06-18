@@ -23,3 +23,4 @@ boto3==1.28.76
 xarray==2024.4.0
 python-dateutil==2.8.2
 psycopg2-binary==2.9.11
+phonenumbers==8.13.17
