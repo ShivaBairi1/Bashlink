@@ -1,36 +1,41 @@
 import React, { useState } from 'react'
-import axios from 'axios'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../auth/AuthContext'
 
 export default function Login(){
+  const { login } = useAuth()
   const [email,setEmail]=useState('')
   const [password,setPassword]=useState('')
   const [msg,setMsg]=useState('')
+  const nav = useNavigate()
 
   async function submit(e:any){
     e.preventDefault()
     try{
-      const res = await axios.post('/api/auth/login', { email, password })
-      setMsg('Logged in (token received)')
+      await login(email,password)
+      nav('/')
     }catch(err:any){
-      setMsg(err?.response?.data?.detail || 'Error')
+      setMsg(err?.response?.data?.detail || 'Login failed')
     }
   }
 
   return (
-    <div style={{padding:20}}>
-      <h2>Login</h2>
-      <form onSubmit={submit}>
+    <div className="max-w-md mx-auto bg-white p-6 rounded shadow">
+      <h2 className="text-lg font-semibold">Login</h2>
+      <form onSubmit={submit} className="space-y-4 mt-4">
         <div>
-          <label>Email</label>
-          <input value={email} onChange={e=>setEmail(e.target.value)} />
+          <label className="block text-sm">Email</label>
+          <input value={email} onChange={e=>setEmail(e.target.value)} className="w-full border p-2 rounded" />
         </div>
         <div>
-          <label>Password</label>
-          <input type="password" value={password} onChange={e=>setPassword(e.target.value)} />
+          <label className="block text-sm">Password</label>
+          <input type="password" value={password} onChange={e=>setPassword(e.target.value)} className="w-full border p-2 rounded" />
         </div>
-        <button type="submit">Login</button>
+        <div>
+          <button className="px-4 py-2 bg-blue-600 text-white rounded">Login</button>
+        </div>
+        <div className="text-red-600">{msg}</div>
       </form>
-      <div>{msg}</div>
     </div>
   )
 }
