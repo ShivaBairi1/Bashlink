@@ -1,12 +1,12 @@
-import csv
-import io
-from typing import List, Dict, Any
 from app.repositories.datasets import DatasetRepository
 from app.models.models import Dataset, CustomerRecord
+from sqlalchemy import select, insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import List, Dict, Any
 from app.utils import security
 import pandas as pd
 import uuid
+from app.utils.phones import normalize_phone
 
 class DatasetService:
     def __init__(self, db: AsyncSession, company_id: str):
@@ -32,11 +32,14 @@ class DatasetService:
         records = []
         for _, row in df.iterrows():
             dynamic = {c: (row.get(c) if row.get(c) is not None else "") for c in columns}
+            phone_raw = (dynamic.get('phone') or dynamic.get('Phone') or dynamic.get('Mobile') or dynamic.get('mobile') or '')
+            normalized = normalize_phone(phone_raw)
             rec = {
                 "id": str(uuid.uuid4()),
                 "company_id": self.company_id,
                 "dataset_id": dataset.id,
-                "phone": dynamic.get("phone") or dynamic.get("Phone") or None,
+                "phone": phone_raw or None,
+                "normalized_phone": normalized,
                 "email": dynamic.get("email") or dynamic.get("Email") or None,
                 "dynamic_fields": dynamic
             }
