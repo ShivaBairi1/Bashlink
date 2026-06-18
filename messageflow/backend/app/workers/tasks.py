@@ -1,63 +1,67 @@
 @@
- @celery.task(bind=True)
- def process_whatsapp_webhook_task(self, payload: dict):
+ from app.integrations.whatsapp import WhatsAppService
+ from app.integrations.email_provider import EmailService
+ from app.services.credit_service import CreditService
+ from app.utils.idempotency import make_idempotency_key
+ from sqlalchemy.exc import IntegrityError
++from app.utils.limiter import RedisLimiter
 @@
-     async def _process_whatsapp_webhook(payload: dict):
-@@
-         # insert reply
-         reply = models.Reply(id=str(os.urandom(16).hex()), company_id=company_id, customer_record_id=customer_id, message_text=text, provider_event=payload)
-         session.add(reply)
-         await session.commit()
-+
-+
-+@celery.task(bind=True)
-+def process_dlq_retry_task(self, payload: dict):
-+    return asyncio.run(_process_dlq_retry(payload))
-+
-+
-+async def _process_dlq_retry(payload: dict):
-+    async with AsyncSessionLocal() as session:
-+        dlq_id = payload.get('dlq_id')
-+        q = select(models.ProviderFailedMessage).where(models.ProviderFailedMessage.id == dlq_id)
-+        res = await session.execute(q)
-+        entry = res.scalar_one_or_none()
-+        if not entry:
-+            return False
-+        # naive retry: attempt to re-send based on payload
-+        channel = entry.channel
-+        p = entry.payload or {}
-+        company_id = entry.company_id
-+        # find message or reconstruct
-+        msg_text = p.get('message') or p.get('generated_message') or ''
-+        cust_id = p.get('customer_id')
-+        # perform send similar to bulk_send logic but minimal
-+        try:
-+            if channel == 'whatsapp':
-+                wq = select(models.WhatsAppConfig).where(models.WhatsAppConfig.company_id == company_id)
-+                wres = await session.execute(wq)
-+                wconf = wres.scalar_one_or_none()
-+                wa = WhatsAppService(access_token=(wconf.access_token if wconf else None), phone_number_id=(wconf.phone_number_id if wconf else None))
-+                # find customer phone
-+                cust = None
-+                if cust_id:
-+                    cq = select(models.CustomerRecord).where(models.CustomerRecord.id == cust_id)
-+                    cres = await session.execute(cq)
-+                    cust = cres.scalar_one_or_none()
-+                if not cust:
-+                    return False
-+                res = wa.send_text_message(cust.phone or '', msg_text)
-+                provider_id = None
+-                # respect per-company rate limit if configured
+-                rate_limit = None
+-                try:
+-                    wq = select(models.WhatsAppConfig).where(models.WhatsAppConfig.company_id == company_id)
+-                    wres = await session.execute(wq)
+-                    wconf = wres.scalar_one_or_none()
+-                    rate_limit = getattr(wconf, 'rate_limit', None) if wconf else None
+-                except Exception:
+-                    wconf = None
++                # respect per-company rate limit and concurrency if configured
++                rate_limit = None
++                concurrency = None
 +                try:
-+                    provider_id = res.get('messages', [])[0].get('id') if isinstance(res, dict) and res.get('messages') else None
++                    wq = select(models.WhatsAppConfig).where(models.WhatsAppConfig.company_id == company_id)
++                    wres = await session.execute(wq)
++                    wconf = wres.scalar_one_or_none()
++                    rate_limit = getattr(wconf, 'rate_limit', None) if wconf else None
++                    concurrency = getattr(wconf, 'concurrency', None) if wconf else None
 +                except Exception:
-+                    provider_id = None
-+                # update original message if present
-+                if entry.message_id:
-+                    await session.execute(update(models.Message).where(models.Message.id == entry.message_id).values(status='sent', provider_message_id=provider_id))
-+                # delete DLQ entry
-+                await session.execute(delete(models.ProviderFailedMessage).where(models.ProviderFailedMessage.id == dlq_id))
-+                await session.commit()
-+                return True
-+        except Exception:
-+            # leave DLQ entry for manual retry
-+            return False
++                    wconf = None
++
++                limiter = RedisLimiter(redis_url=None)
+@@
+-                for attempt in range(3):
++                for attempt in range(3):
+                     try:
++                        # acquire concurrency slot if configured
++                        if concurrency and int(concurrency) > 0:
++                            ok = limiter.acquire(company_id, int(concurrency), wait_seconds=2, timeout=30)
++                            if not ok:
++                                # couldn't acquire slot quickly - back off and retry
++                                await asyncio.sleep(0.5)
++                                continue
+                         if tmpl.channel == 'whatsapp':
+-                            wa = WhatsAppService(access_token=(wconf.access_token if wconf else None), phone_number_id=(wconf.phone_number_id if wconf else None))
+-                            res = wa.send_text_message(r.phone, text)
++                            wa = WhatsAppService(access_token=(wconf.access_token if wconf else None), phone_number_id=(wconf.phone_number_id if wconf else None))
++                            res = wa.send_text_message(r.phone, text)
+@@
+-                            await session.commit()
+-                            sent = True
+-                            break
++                            await session.commit()
++                            sent = True
++                            break
+@@
+-                if rate_limit and rate_limit > 0:
+-                    await asyncio.sleep(1.0 / float(rate_limit))
++                if rate_limit and rate_limit > 0:
++                    await asyncio.sleep(1.0 / float(rate_limit))
++
++                # release concurrency slot if acquired
++                try:
++                    if concurrency and int(concurrency) > 0:
++                        limiter.release(company_id)
++                except Exception:
++                    pass
++
++                if not sent:
